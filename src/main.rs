@@ -13,12 +13,13 @@ mod spotify;
 
 
 
-
+/// Represents the current page content
 enum Status {
     UserSelect,
     SignIn,
     Loading,
     SuccessPage,
+    ErrorPage
 }
 
 impl Default for Status {
@@ -27,6 +28,7 @@ impl Default for Status {
     }
 }
 
+/// Represents a message passed for various events
 #[derive(Clone, Debug)]
 enum Message {
     NextPage,
@@ -39,19 +41,32 @@ enum Message {
     Tick
 }
 
-
+/// Represents the application, which stores various types of data
 struct LoginMenu {
+    /// Spotify API client
     client: SpotifyUser,
+    /// Stores page content
     content: Status,
+    /// Stores client ID from input box
     id_input: String,
+    /// Stores client secret from input box
     secret_input: String,
+    /// Stores build directory from input
     build_dir: PathBuf,
+    /// Stores build validity from input
     build_status: (String, bool),
+    /// Stores output directory from input
     output_dir: PathBuf,
+    /// Stores output validity from input
     output_status: (String, bool),
+    /// Stores potential error messages from sign in page
     sign_in_message: String,
+    /// Stores running progress of the build
     progress: Arc<Mutex<i32>>,
-    progress_int: i32
+    /// Stores temporary progress of the build
+    progress_int: i32,
+    /// Stores the error message when code would otherwise panic
+    error_message: String
 }
 
 impl Default for LoginMenu {
@@ -67,7 +82,7 @@ impl Default for LoginMenu {
                                           .parent()
                                           .expect("Cannot find parent")
                                           .join(Path::new("spotify_screensaver"));
-                if containts_valid(&parent_dir) {
+                if containts_valid_build(&parent_dir) {
                     parent_dir
                 } else {
                     Default::default()
@@ -78,7 +93,8 @@ impl Default for LoginMenu {
             output_status: (String::default(), false),
             sign_in_message: String::default(),
             progress: Arc::new(Mutex::new(0)),
-            progress_int: 0
+            progress_int: 0,
+            error_message: String::default()
         }
     }
 }
@@ -87,7 +103,7 @@ const DEP_COUNT: i32 = 234;
 
 impl LoginMenu {
     fn title(&self) -> String {
-        String::from("User Menu")
+        String::from("Screensaver Installer")
     }
 
     fn new() -> (LoginMenu, Task<Message>) {
@@ -100,14 +116,14 @@ impl LoginMenu {
     fn view(&self) -> Container<'_, Message> {
         match self.content {
             Status::UserSelect => {
-                let build_red = if self.build_status.1 {Color::from_rgb(255.0, 255.0,255.0)} else {Color::from_rgb(100.0, 0.0, 0.0)};
+                // Color of message based on validity of build directory
+                let build_color = if self.build_status.1 {Color::from_rgb(255.0, 255.0,255.0)} else {Color::from_rgb(100.0, 0.0, 0.0)};
                 container(
                     column![
                         text(format!("Successfully found account: {}", self.client.get_username())).size(15),
-
                         row![
                             text("Build folder: ").size(15),
-                            text(&self.build_status.0).size(15).color(build_red)
+                            text(&self.build_status.0).size(15).color(build_color)
                         ].width(Length::Fixed(300.0)),
                         row![
                             text_input("Build Directory", &self.build_dir.to_str().expect("Could not convert")),
@@ -191,7 +207,26 @@ impl LoginMenu {
                 .align_y(Center)
                 .padding(10)
             },
-                    }
+            Status::ErrorPage => {
+                container(
+                    column![
+                        text(format!("There was an error: {}", self.error_message))
+                        .size(18)
+                        .font(Font{weight: iced::font::Weight::Bold, ..Font::default()}),
+                        text("Please try again")
+                        .size(16),
+                        button("Close Installer").on_press(Message::CloseWindow),
+                    ]
+                    .align_x(Center)
+                    .spacing(10)
+                )
+                .height(Length::Fill)
+                .width(Length::Fill)
+                .align_x(Center)
+                .align_y(Center)
+                .padding(10)
+            },
+        }
     }
 
 
@@ -202,79 +237,111 @@ impl LoginMenu {
 
         match message {
             Message::NextPage => {
-                        if self.build_dir.exists() {
-                            let user_file = "user.json";
-                            let constants_file = "constants.json";
-                            let mut user_path = self.build_dir.clone();
-                            user_path.push("src/user.json");
-                            let mut constants_path = self.build_dir.clone();
-                            constants_path.push("src/constants.json");
-                            fs::copy(user_file,user_path).expect("Unable to copy file to resources");
-                            fs::copy(constants_file,constants_path).expect("Unable to copy file to resources");
+                if self.build_dir.exists() {
+                    let scr_file = self.build_dir.join(Path::new("target/release/spotify_screensaver")).with_extension("exe");
+                    // Remove old build file to ensure the newest build is always accessed
+                    if scr_file.exists() {
+                        if let Err(_) = std::fs::remove_file(scr_file) {
+                            self.error_message = String::from("Unable to remove old screensaver build, reload and try again");
+                            self.content = Status::ErrorPage;
+                            return;
+                        }
+                    }
 
-                            let mut cmd = Command::new("cargo").current_dir(&self.build_dir).arg("build").arg("--release").stderr(Stdio::piped()).spawn().unwrap();
-                            let stdout = cmd.stderr.take().unwrap();
-                            let reader = BufReader::new(stdout);
-                            let progress_copy = Arc::clone(&self.progress);
-
-                            std::thread::spawn(move || {
-                                for _line in reader.lines() {
-                                    let mut progress_copy = progress_copy.lock().expect("Could not unwrap progress");
-                                    *progress_copy += 1;
-                                    std::thread::sleep(Duration::from_millis(1));
-                                }
-
-                                let mut progress_copy = progress_copy.lock().expect("Could not unwrap progress");
-                                *progress_copy = -1;
-                            });
+                    let user_file = "user.json";
+                    let constants_file = "constants.json";
+                    let mut user_path = self.build_dir.clone();
+                    user_path.push("src/user.json");
+                    let mut constants_path = self.build_dir.clone();
+                    constants_path.push("src/constants.json");
                     
-                            self.content = Status::Loading;
-                        }
+                    // Copy json files to build directory
+                    if let Err(_) = fs::copy(user_file,user_path) {
+                        self.error_message = String::from("Could not copy user.json, please try again");
+                        self.content = Status::ErrorPage;
+                        return;
                     }
+                    if let Err(_) = fs::copy(constants_file,constants_path) {
+                        self.error_message = String::from("Could not copy constants.json, please try again");
+                        self.content = Status::ErrorPage;
+                        return;
+                    }
+                    
+                    // Simple command to check for valid Rust installation
+                    if let Err(_) = Command::new("cargo").output() {
+                        self.error_message = String::from("Could not build file: Rust is not installed");
+                        self.content = Status::ErrorPage;
+                        return;
+                    }
+
+                    let mut cmd = Command::new("cargo").current_dir(&self.build_dir).arg("build").arg("--release").stderr(Stdio::piped()).spawn().unwrap();
+                    let stdout = cmd.stderr.take().unwrap();
+                    let reader = BufReader::new(stdout);
+                    let progress_copy = Arc::clone(&self.progress);
+
+                    std::thread::spawn(move || {
+                        for _line in reader.lines() {
+                            let mut progress_copy = progress_copy.lock().expect("Could not unwrap progress");
+                            *progress_copy += 1;
+                            std::thread::sleep(Duration::from_millis(1));
+                        }
+
+                        let mut progress_copy = progress_copy.lock().expect("Could not unwrap progress");
+                        *progress_copy = -1;
+                    });
+            
+                    self.content = Status::Loading;
+                }
+            }
             Message::InputID(value) => {
-                        self.id_input = value;
-                    }
+                self.id_input = value;
+            }
             Message::InputSecret(value) => {
-                        self.secret_input = value;
-                    }
+                self.secret_input = value;
+            }
             Message::ToSelection => {
-                        self.client.set_id(&self.id_input);
-                        self.client.set_secret(&self.secret_input);
-                        if !(self.id_input.is_empty() || self.secret_input.is_empty()) && self.client.generate_refresh(){
-                            self.client.generate_token();
-                            self.client.set_username();
-                            self.content = Status::UserSelect;
-                        } else {
-                            let error = if self.id_input.is_empty() || self.secret_input.is_empty() {"empty client or secret"} else {"timed out"};
-                            self.sign_in_message = String::from(format!("{}, please try again", error));
-                        }
-                    }
+                // Set client ID and secret for Spotify API client
+                self.client.set_id(&self.id_input);
+                self.client.set_secret(&self.secret_input);
+        
+                // Only progress if successfully generated user refresh token
+                if !(self.id_input.is_empty() || self.secret_input.is_empty()) && self.client.generate_refresh(){
+                    self.client.generate_token();
+                    self.client.set_username();
+                    self.content = Status::UserSelect;
+                } else {
+                    // Display error message
+                    let error = if self.id_input.is_empty() || self.secret_input.is_empty() {"empty client or secret"} else {"timed out"};
+                    self.sign_in_message = String::from(format!("{}, please try again", error));
+                }
+            }
             Message::CloseWindow => {
-                        std::process::exit(0);
-                    }
+                std::process::exit(0);
+            }
             Message::SelectBuild => {
-                        let destination = FileDialog::new().pick_folder();
-                        if destination.is_some() {
-                            let path = destination.as_ref().unwrap();
-                            if containts_valid(path) {
-                                self.build_dir = destination.unwrap();
-                                self.build_status = (String::from("valid directory"), true);
-                            } else {
-                                self.build_status = (String::from("invalid directory"), false);
-                            }
-                        } else {
-                            self.build_status = (String::from("please select a valid folder"), false);
-                        }
+                // Opens a file dialogue
+                let destination = FileDialog::new().pick_folder();
+                if destination.is_some() {
+                    let path = destination.as_ref().unwrap();
+                    if containts_valid_build(path) {
+                        self.build_dir = destination.unwrap();
+                        self.build_status = (String::from("valid directory"), true);
+                    } else {
+                        self.build_status = (String::from("invalid directory"), false);
                     }
+                } else {
+                    self.build_status = (String::from("please select a valid folder"), false);
+                }
+            }
             Message::SelectOutput => {
-                        let destination = FileDialog::new().pick_folder();
-                        if destination.is_some() {
-                            self.output_dir = destination.unwrap();
-                            self.output_status = (String::from("valid directory"), true);
-                        } else {
-                            self.output_status = (String::from("please select a valid folder"), false);
-                        }
-                    }
+                let destination = FileDialog::new().pick_folder();
+                if destination.is_some() {
+                    self.output_dir = destination.unwrap();
+                    self.output_status = (String::from("valid directory"), true);
+                } else {
+                    self.output_status = (String::from("please select a valid folder"), false);
+                }
+            }
             Message::Tick => {
                 match self.content {
                     Status::Loading => {
@@ -284,11 +351,17 @@ impl LoginMenu {
                             let  output_path: PathBuf = self.output_dir.clone().join(Path::new("spotify_screensaver").with_extension("scr"));
 
                             if saver_path.exists() && saver_path.is_file(){
-                                fs::copy(saver_path, output_path).expect("Could not copy saver to output directory");
+                                if let Err(_) = fs::copy(saver_path, output_path) {
+                                    self.error_message = String::from("Could not copy screensaver to output directory");
+                                    self.content = Status::ErrorPage;
+                                } else {
+                                    self.content = Status::SuccessPage;
+                                }
                             } else {
-                                panic!("Could not find file");
+                                self.error_message = String::from("Could not build due to unknown error: make sure the build directory is valid");
+                                self.content = Status::ErrorPage;
                             }
-                            self.content = Status::SuccessPage;
+                            
                         }
                     }
                     _ => {}
@@ -301,7 +374,6 @@ impl LoginMenu {
         iced::time::every(Duration::from_millis(10)).map(|_| Message::Tick) 
     }
 }
-
 
 fn main() -> iced::Result {
     let window_settings = window::Settings {
@@ -316,6 +388,7 @@ fn main() -> iced::Result {
     app.run_with(LoginMenu::new)
 }
 
-fn containts_valid(path: &Path) -> bool {
+/// Checks if path contains necessary files to build screensaver
+fn containts_valid_build(path: &Path) -> bool {
     return path.exists() && path.join(Path::new("src")).exists()
 }
