@@ -2029,6 +2029,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "installer"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "csv",
+ "futures",
+ "iced",
+ "open",
+ "pkce",
+ "reqwest",
+ "rfd",
+ "serde",
+ "serde_json",
+ "tokio",
+ "url-search-params",
+]
+
+[[package]]
 name = "instant"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3850,24 +3868,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eda41003dc44290527a59b13432d4a0379379fa074b70174882adfbdfd917844"
 dependencies = [
  "bitflags 2.6.0",
-]
-
-[[package]]
-name = "spotify_user"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "csv",
- "futures",
- "iced",
- "open",
- "pkce",
- "reqwest",
- "rfd",
- "serde",
- "serde_json",
- "tokio",
- "url-search-params",
 ]
 
 [[package]]
