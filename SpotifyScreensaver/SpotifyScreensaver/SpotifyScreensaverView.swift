@@ -9,9 +9,8 @@ import ScreenSaver
 
 class SpotifyScreensaverView: ScreenSaverView {
     private var squarePosition: CGPoint = .zero
-    private let squareSize = NSSize(width: 250, height: 250)
+    private var squareSize: Double = 0
     private var squareVelocity: CGVector = .zero
-    private let constantVelocity = 5;
     private var cachedImage: NSImage?
     private var token: String = ""
     
@@ -101,8 +100,15 @@ class SpotifyScreensaverView: ScreenSaverView {
     
     override init?(frame: NSRect, isPreview: Bool) {
         super.init(frame: frame, isPreview: isPreview)
-        squarePosition = CGPoint(x: frame.width / 2, y: frame.height / 2)
-        squareVelocity = CGVector(dx: 2 , dy: 2)
+        squarePosition = CGPoint(x: frame.width/2, y: frame.height/2)
+        squareVelocity = CGVector(dx: frame.width/735 , dy: frame.width/735)
+        if Bool.random() {
+            squareVelocity.dx *= -1
+        }
+        if Bool.random() {
+            squareVelocity.dy *= -1
+        }
+        squareSize = frame.width/5.5
         animationTimeInterval = 1.0/60
         let saverBundle = Bundle(for: type(of: self))
         
@@ -150,10 +156,10 @@ class SpotifyScreensaverView: ScreenSaverView {
     
     
     private func checkBounds() -> (xAxis: Bool, yAxis: Bool) {
-        let xAxis = squarePosition.x - squareSize.width/2 <= 0 ||
-        squarePosition.x + squareSize.width/2 >= bounds.width
-        let yAxis = squarePosition.y - squareSize.height/2 <= 0 ||
-        squarePosition.y + squareSize.height/2 >= bounds.height
+        let xAxis = squarePosition.x - squareSize/2 <= 0 ||
+        squarePosition.x + squareSize/2 >= bounds.width
+        let yAxis = squarePosition.y - squareSize/2 <= 0 ||
+        squarePosition.y + squareSize/2 >= bounds.height
         return (xAxis, yAxis)
     }
     
@@ -254,10 +260,10 @@ class SpotifyScreensaverView: ScreenSaverView {
     }
     
     private func drawSquare() {
-        let squareDrawing = NSRect(x: squarePosition.x - squareSize.width / 2,
-                                   y: squarePosition.y - squareSize.height / 2,
-                                   width: squareSize.width,
-                                   height: squareSize.height)
+        let squareDrawing = NSRect(x: squarePosition.x - squareSize / 2,
+                                   y: squarePosition.y - squareSize / 2,
+                                   width: squareSize,
+                                   height: squareSize)
         
         let square = NSBezierPath(rect: squareDrawing)
     
