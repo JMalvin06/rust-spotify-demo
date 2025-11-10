@@ -11,11 +11,12 @@ mod spotify;
 
 
 
-
+/// Represents the current page content
 enum Status {
     UserSelect,
     SignIn,
     SuccessPage,
+    ErrorPage
 }
 impl Default for Status {
     fn default() -> Self {
@@ -23,6 +24,7 @@ impl Default for Status {
     }
 }
 
+/// Represents a message passed for various events
 #[derive(Clone, Debug)]
 enum Message {
     NextPage,
@@ -34,17 +36,28 @@ enum Message {
     CloseWindow
 }
 
-
+/// Represents the application, which stores various types of data
 struct LoginMenu {
+    /// Spotify API client
     client: SpotifyUser,
+    /// Stores page content
     content: Status,
+    /// Stores client ID from input box
     id_input: String,
+    /// Stores client secret from input box
     secret_input: String,
+    /// Stores build directory from input
     build_dir: PathBuf,
+    /// Stores build validity from input
     build_status: (String, bool),
+    /// Stores output directory from input
     output_dir: PathBuf,
+    /// Stores output validity from input
     output_status: (String, bool),
-    sign_in_message: String
+    /// Stores potential error messages from sign in page
+    sign_in_message: String,
+    // Stores the error message when code panics
+    error_message: String
 }
 
 impl Default for LoginMenu {
@@ -60,7 +73,7 @@ impl Default for LoginMenu {
                                           .parent()
                                           .expect("Cannot find parent")
                                           .join(Path::new("SpotifyScreensaver"));
-                if containts_valid(&parent_dir) {
+                if containts_valid_build(&parent_dir) {
                     parent_dir
                 } else {
                     Default::default()
@@ -69,7 +82,8 @@ impl Default for LoginMenu {
             build_status: (String::default(), false),
             output_dir: std::env::current_exe().unwrap().parent().expect("Cannot find parent").to_path_buf(),
             output_status: (String::default(), false),
-            sign_in_message: String::default()
+            sign_in_message: String::default(),
+            error_message: String::default()
         }
     }
 }
@@ -80,7 +94,7 @@ impl Default for LoginMenu {
 
 impl LoginMenu {
     fn title(&self) -> String {
-        String::from("User Menu")
+        String::from("Screensaver Installer")
     }
 
     fn new() -> (LoginMenu, Task<Message>) {
@@ -93,14 +107,14 @@ impl LoginMenu {
     fn view(&self) -> Container<'_, Message> {
         match self.content {
             Status::UserSelect => {
-                let build_red = if self.build_status.1 {Color::from_rgb(255.0, 255.0,255.0)} else {Color::from_rgb(100.0, 0.0, 0.0)};
+                // Color of message based on validity of build directory
+                let build_color = if self.build_status.1 {Color::from_rgb(255.0, 255.0,255.0)} else {Color::from_rgb(100.0, 0.0, 0.0)};
                 container(
                     column![
                         text(format!("Successfully found account: {}", self.client.get_username())).size(15),
-
                         row![
                             text("Build folder: ").size(15),
-                            text(&self.build_status.0).size(15).color(build_red)
+                            text(&self.build_status.0).size(15).color(build_color)
                         ].width(Length::Fixed(300.0)),
                         row![
                             text_input("Build Directory", &self.build_dir.to_str().expect("Could not convert")),
@@ -165,13 +179,33 @@ impl LoginMenu {
                 .align_y(Center)
                 .padding(10)
             },
-                    }
+            Status::ErrorPage => {
+                container(
+                    column![
+                        text(format!("There was an error: {}", self.error_message))
+                        .size(18)
+                        .font(Font{weight: iced::font::Weight::Bold, ..Font::default()}),
+                        text("Please try again")
+                        .size(16),
+                        button("Close Installer").on_press(Message::CloseWindow)
+                    ]
+                    .align_x(Center)
+                    .spacing(10)
+                )
+                .height(Length::Fill)
+                .width(Length::Fill)
+                .align_x(Center)
+                .align_y(Center)
+                .padding(10)
+            },
+        }
     }
 
 
     fn update(&mut self, message: Message) {
         match message {
             Message::NextPage => {
+                // Only progress to next page if valid build directory has been selected
                 if self.build_dir.exists() {
                     let user_file = "user.json";
                     let constants_file = "constants.json";
@@ -179,19 +213,42 @@ impl LoginMenu {
                     user_path.push("SpotifyScreensaver/user.json");
                     let mut constants_path = self.build_dir.clone();
                     constants_path.push("SpotifyScreensaver/constants.json");
-                    fs::copy(user_file,user_path).expect("Unable to copy file to resources");
-                    fs::copy(constants_file,constants_path).expect("Unable to copy file to resources");
 
-                    Command::new("xcodebuild").current_dir(&self.build_dir).arg("build").output().expect("Could not build");
+                    // Copy json files with refresh token, client ID and client secret to screensaver file
+                    if let Err(_) = fs::copy(user_file,user_path) {
+                        self.error_message = format!("Unable to copy user file");
+                        self.content = Status::ErrorPage;
+                        return;
+                    }
+                    if let Err(_) = fs::copy(constants_file,constants_path) {
+                        self.error_message = format!("Unable to copy constants file");
+                        self.content = Status::ErrorPage;
+                        return;
+                    }
+
+                    let output = Command::new("xcodebuild").current_dir(&self.build_dir).arg("build").output().unwrap();
+                    // Build screensaver with xcode tools
+                    if !output.status.success() {
+                        self.error_message = String::from("xcodebuild failed: XCode command line tools likely not installed");
+                        self.content = Status::ErrorPage;
+                        return;
+                    }
                     
                     let saver_path = self.build_dir.clone().join(Path::new("build/Release/SpotifyScreensaver.saver"));
                     let  output_path: PathBuf = self.output_dir.clone().join(Path::new("SpotifyScreensaver.saver"));
-
+                    // Copy built screensaver to output directory
                     if saver_path.exists() {
-                        copy_dir(saver_path, output_path).expect("Could not copy saver to output directory");
+                        if copy_dir(saver_path, output_path).is_err() {
+                            self.error_message = String::from("Could not copy screensaver file");
+                            self.content = Status::ErrorPage;
+                            return;
+                        }
                     } else {
-                        panic!("Could not find file");
+                        self.error_message = String::from("Could not find screensaver file");
+                        self.content = Status::ErrorPage;
+                        return;
                     }
+                    
                     self.content = Status::SuccessPage;
                 }
             }
@@ -202,13 +259,17 @@ impl LoginMenu {
                 self.secret_input = value;
             }
             Message::ToSelection => {
+                // Set client ID and secret for Spotify API client
                 self.client.set_id(&self.id_input);
                 self.client.set_secret(&self.secret_input);
+
+                // Only progress if successfully generated user refresh token
                 if !(self.id_input.is_empty() || self.secret_input.is_empty()) && self.client.generate_refresh(){
                     self.client.generate_token();
                     self.client.set_username();
                     self.content = Status::UserSelect;
                 } else {
+                    // Display error message
                     let error = if self.id_input.is_empty() || self.secret_input.is_empty() {"empty client or secret"} else {"timed out"};
                     self.sign_in_message = String::from(format!("{}, please try again", error));
                 }
@@ -217,10 +278,11 @@ impl LoginMenu {
                 std::process::exit(0);
             }
             Message::SelectBuild => {
+                // Opens a file dialogue
                 let destination = FileDialog::new().pick_folder();
                 if destination.is_some() {
                     let path = destination.as_ref().unwrap();
-                    if containts_valid(path) {
+                    if containts_valid_build(path) {
                         self.build_dir = destination.unwrap();
                         self.build_status = (String::from("valid directory"), true);
                     } else {
@@ -243,7 +305,6 @@ impl LoginMenu {
     }
 }
 
-
 fn main() -> iced::Result {
     let window_settings = window::Settings {
         size: iced::Size { width: 450.0, height: 200.0},
@@ -258,7 +319,7 @@ fn main() -> iced::Result {
 
 
 fn copy_dir(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()> {
-    fs::create_dir_all(&dst).expect("Cannot Create Directory");
+    fs::create_dir_all(&dst).expect("Cannot create directory");
     for entry in fs::read_dir(src)? {
         let entry = entry?;
         let ty = entry.file_type()?;
@@ -271,6 +332,7 @@ fn copy_dir(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> std::io::Result<()>
     Ok(())
 }
 
-fn containts_valid(path: &Path) -> bool {
+/// Checks if path contains necessary files to build screensaver
+fn containts_valid_build(path: &Path) -> bool {
     return path.exists() && path.join(Path::new("SpotifyScreensaver.xcodeproj")).exists()
 }
