@@ -1,19 +1,11 @@
 #![windows_subsystem = "windows"]
 use std::sync::{mpsc, Arc};
-
 use bytes::Bytes;
 use nannou::prelude::*;
 use tokio::sync::Mutex;
 use rand::Rng;
-
 use crate::spotify::SpotifyUser;
 mod spotify;
-
-const SIZE: f32 = 300.;
-const SPEED: f32 = 90.;
-
-
-
 
 #[tokio::main]
 async fn main() {
@@ -26,6 +18,8 @@ async fn main() {
 struct Model {
     x: f32,
     y: f32,
+    size: f32,
+    speed: f32,
     last_time: f32,
     x_sign: f32,
     y_sign: f32,
@@ -47,17 +41,31 @@ fn model(app: &App) -> Model {
     let img_path = assets.join("images").join("placeholder.png");
     let texture = wgpu::Texture::from_path(app, img_path).expect("Failed to load");
     let client = SpotifyUser::new();
-    let rand_x = rand::thread_rng().gen_bool(0.5);
-    let rand_y = rand::thread_rng().gen_bool(0.5);
+    let width = app.window_rect().right()*2.0;
+    let height = app.window_rect().top()*2.0;
 
-    
+    // Scale size to take up 5% of the overall screen
+    let size = (width*height*0.05).sqrt();
+    // Scale speed to 1.85% of the screen perimeter (in px/s)
+    let speed = 2.0*(width+height)*0.0185;
+
+    // Randomize x and y starting values
+    let mut range = rand::thread_rng();
+    let x = range.gen_range((size - width)..(width - size))/2.0;
+    let y = range.gen_range((size - height)..(height - size))/2.0;
+
+    // Randomize starting direction
+    let rand_xdir = rand::thread_rng().gen_bool(0.5);
+    let rand_ydir = rand::thread_rng().gen_bool(0.5);
     
     Model {
-        x: 0.0,
-        y: 0.0,
+        x,
+        y,
+        size,
+        speed,
         last_time: 0.0,
-        x_sign: if rand_x {1.0} else {-1.0},
-        y_sign: if rand_y {1.0} else {-1.0},
+        x_sign: if rand_xdir {1.0} else {-1.0},
+        y_sign: if rand_ydir {1.0} else {-1.0},
         texture: texture,
         img_recieve,
         img_send,
@@ -94,17 +102,17 @@ fn update(app: &App, model: &mut Model, _update: Update) {
     let boundary = app.window_rect();
     let delta_t = app.time - model.last_time;
 
-    model.x += delta_t * SPEED * model.x_sign;
-    model.y += delta_t * SPEED * model.y_sign;
+    model.x += delta_t * model.speed * model.x_sign;
+    model.y += delta_t * model.speed * model.y_sign;
     
-    if model.x+SIZE/2. >= boundary.right() && model.x_sign > 0. {
+    if model.x+model.size/2. >= boundary.right() && model.x_sign > 0. {
         model.x_sign = -1.0;
-    } else if model.x-SIZE/2. <= boundary.left() {
+    } else if model.x-model.size/2. <= boundary.left() {
         model.x_sign = 1.0;
     }
-    if model.y+SIZE/2. >= boundary.top() && model.y_sign > 0. {
+    if model.y+model.size/2. >= boundary.top() && model.y_sign > 0. {
         model.y_sign = -1.0;
-    } else if model.y-SIZE/2. <= boundary.bottom() && model.y_sign < 0. {
+    } else if model.y-model.size/2. <= boundary.bottom() && model.y_sign < 0. {
         model.y_sign = 1.0;
     }
 
@@ -161,6 +169,6 @@ fn view(app: &App, model: &Model, frame: Frame){
     draw.background().color(BLACK);
     draw.texture(&model.texture)
     .x_y(model.x, model.y)
-    .w_h(SIZE,SIZE);
+    .w_h(model.size,model.size);
     draw.to_frame(app, &frame).unwrap();
 }

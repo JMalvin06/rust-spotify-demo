@@ -280,7 +280,7 @@ impl LoginMenu {
                     let progress_copy = Arc::clone(&self.progress);
 
                     std::thread::spawn(move || {
-                        for _line in reader.lines() {
+                        for _ in reader.lines() {
                             let mut progress_copy = progress_copy.lock().expect("Could not unwrap progress");
                             *progress_copy += 1;
                             std::thread::sleep(Duration::from_millis(1));
@@ -371,7 +371,7 @@ impl LoginMenu {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        iced::time::every(Duration::from_millis(10)).map(|_| Message::Tick) 
+        iced::time::every(Duration::from_millis(10)).map(|_| Message::Tick)
     }
 }
 
