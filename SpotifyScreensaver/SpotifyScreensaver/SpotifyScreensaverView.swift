@@ -100,15 +100,19 @@ class SpotifyScreensaverView: ScreenSaverView {
     
     override init?(frame: NSRect, isPreview: Bool) {
         super.init(frame: frame, isPreview: isPreview)
-        squarePosition = CGPoint(x: frame.width/2, y: frame.height/2)
-        squareVelocity = CGVector(dx: frame.width/735 , dy: frame.width/735)
+        
+        
+        squareVelocity = CGVector(dx: frame.width/735 , dy: frame.width/735) // Sorta arbitrary but it's fine
         if Bool.random() {
             squareVelocity.dx *= -1
         }
         if Bool.random() {
             squareVelocity.dy *= -1
         }
-        squareSize = frame.width/5.5
+        
+        // Square size set as 5% of the screen area
+        squareSize = (frame.width*frame.height*0.05).squareRoot()
+        squarePosition = CGPoint(x: Double.random(in: squareSize/2...frame.width-squareSize/2), y: Double.random(in: squareSize/2...frame.height-squareSize/2))
         animationTimeInterval = 1.0/60
         let saverBundle = Bundle(for: type(of: self))
         
@@ -293,5 +297,27 @@ class SpotifyScreensaverView: ScreenSaverView {
         squarePosition.y += squareVelocity.dy
         
         setNeedsDisplay(bounds)
+    }
+
+    func writeLog(_ message: String) {
+        let fileManager = FileManager.default
+        let logsDirectory = fileManager.urls(for: .desktopDirectory, in: .userDomainMask)[0]
+        let logFileURL = logsDirectory.appendingPathComponent("app.log")
+        
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let logEntry = "[\(timestamp)] \(message)\n"
+        
+        // If file exists, append; otherwise create it
+        if fileManager.fileExists(atPath: logFileURL.path) {
+            if let fileHandle = try? FileHandle(forWritingTo: logFileURL) {
+                fileHandle.seekToEndOfFile()
+                if let data = logEntry.data(using: .utf8) {
+                    fileHandle.write(data)
+                }
+                try? fileHandle.close()
+            }
+        } else {
+            try? logEntry.write(to: logFileURL, atomically: true, encoding: .utf8)
+        }
     }
 }
