@@ -195,7 +195,8 @@ impl SpotifyUser {
                             // Check if buffer is correcyl formatted with authorization response
                             if buffer.starts_with(b"GET /callback?code="){
                                 // Exctract code from buffer
-                                let code = String::from_utf8_lossy(&buffer[19..275]).to_string();
+                                let code = String::from(String::from_utf8_lossy(&buffer[19..])
+                                            .split_whitespace().collect::<Vec<&str>>()[0]);
 
                                 // Construct response
                                 let status_line = "HTTP/1.1 200 OK";
@@ -233,7 +234,7 @@ impl SpotifyUser {
     /// Returns `true` if refresh token was successfully generated, `false` otherwise
     #[tokio::main]
     pub(crate) async fn generate_refresh(&self) -> bool {
-        let code = self.retrieve_auth().await;
+        let code: String = self.retrieve_auth().await;
         let auth_url = "https://accounts.spotify.com/api/token";
 
         // Parameters for body of API call
@@ -283,6 +284,9 @@ impl SpotifyUser {
                     }
                     Err(e) => panic!("the response did not match the struct {:?}", e),
                 }
+            }
+            reqwest::StatusCode::BAD_REQUEST  => {
+                panic!("Bad Request, authorization code was likely wrong.");
             }
             other => {
                 println!("There was an unexpected error: {}", other);
